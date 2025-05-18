@@ -83,69 +83,161 @@ def log_action(username, action):
     """Log user actions to the logs table."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute("INSERT INTO logs (username, action, timestamp) VALUES (?, ?, ?)",
-                   (username, action, timestamp))
+                    (username, action, timestamp))
     conn.commit()
 
 # === MAIN APPLICATION CLASS ===
 
 class InventoryApp(tk.Tk):
     def __init__(self, username, role):
-        """Initialize the main application window and tabs."""
         super().__init__()
-        self.setup_style()
-        header_height = 60
-        header_canvas = tk.Canvas(self, height=header_height, width=700, highlightthickness=0)
-        header_canvas.pack(fill="x")
-
-        draw_gradient(header_canvas, 700, header_height, "#007acc", "#f2f2f2")
-
-        # App title
-        header_canvas.create_text(350, 30, text="Inventory Management System", fill="white",
-                                font=("Segoe UI", 16, "bold"))
         self.username = username
         self.role = role
         self.title(f"Inventory Management - Logged in as {self.username} ({self.role})")
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-        self.geometry(f"{screen_width}x{screen_height}")
+        self.geometry("1000x700")
+        self.setup_style()
 
-        # Create tabs
+        header_canvas = tk.Canvas(self, height=60)
+        header_canvas.pack(fill="x")
+        draw_gradient(header_canvas, 1000, 60, "#007acc", "#f2f2f2")
+        header_canvas.create_text(500, 30, text="Inventory Management System", fill="white", font=("Segoe UI", 16, "bold"))
+
         self.tabs = ttk.Notebook(self)
+        self.tabs.pack(expand=True, fill="both")
+
         self.inventory_tab = ttk.Frame(self.tabs)
         self.invoice_tab = ttk.Frame(self.tabs)
         self.user_tab = ttk.Frame(self.tabs)
+        self.log_tab = ttk.Frame(self.tabs)
+        self.settings_tab = ttk.Frame(self.tabs)
+        self.recycle_tab = ttk.Frame(self.tabs)
 
         self.tabs.add(self.inventory_tab, text="Inventory")
         self.tabs.add(self.invoice_tab, text="Invoices")
         if self.role == "admin":
             self.tabs.add(self.user_tab, text="User Management")
-        self.tabs.pack(expand=1, fill="both")
+            self.tabs.add(self.log_tab, text="Activity Logs")
+        self.tabs.add(self.settings_tab, text="Settings")
+        self.tabs.add(self.recycle_tab, text="Recycle Bin")
 
-        # Initialize tab contents
         self.create_inventory_tab()
         self.create_invoice_tab()
         if self.role == "admin":
             self.create_user_tab()
-
-        # Add logs tab for admin
-        if self.role == "admin":
-            self.log_tab = ttk.Frame(self.tabs)
-            self.tabs.add(self.log_tab, text="Activity Logs")
             self.create_log_tab()
-        
-        self.protocol("WM_DELETE_WINDOW", self.on_app_close)
-        
-        # Settings and recycle bin tabs
-        self.settings_tab = ttk.Frame(self.tabs)
-        self.tabs.add(self.settings_tab, text="Settings")
         self.create_settings_tab()
-
-        self.recycle_tab = ttk.Frame(self.tabs)
-        self.tabs.add(self.recycle_tab, text="Recycle Bin")
         self.create_recycle_tab()
+
+        self.protocol("WM_DELETE_WINDOW", self.on_app_close)
+
+    def setup_style(self):
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure("Treeview", font=("Segoe UI", 10), rowheight=24)
+        style.configure("Treeview.Heading", font=("Segoe UI", 11, "bold"))
+        style.configure("TLabel", font=("Segoe UI", 10))
+        style.configure("TButton", font=("Segoe UI", 10), padding=5)
+        style.configure("TNotebook.Tab", font=("Segoe UI", 10, "bold"))
+
+    def on_app_close(self):
+        if messagebox.askokcancel("Exit", "Do you want to close the application?"):
+            log_action(self.username, "Closed application")
+            self.destroy()
+
+    def export_all_to_pdf(self):
+        filename = filedialog.asksaveasfilename(defaultextension=".pdf", initialfile="full_report.pdf",
+                                                filetypes=[("PDF files", "*.pdf")])
+        if not filename:
+            return
+
+        c = canvas.Canvas(filename, pagesize=letter)
+        width, height = letter
+        y = height - 50
+
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(180, y, "Full Inventory and Invoice Report")
+        y -= 40
+
+        # Inventory Section
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "Inventory Items")
+        y -= 20
+        cursor.execute("SELECT item_name, quantity, price FROM inventory WHERE deleted = 0")
+        for item in cursor.fetchall():
+            c.setFont("Helvetica", 10)
+            c.drawString(60, y, f"{item[0]} | Qty: {item[1]} | Price: ${item[2]:.2f}")
+            y -= 15
+            if y < 50:
+                c.showPage()
+                y = height - 50
+
+        # Invoices Section
+        y -= 20
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "Invoices")
+        y -= 20
+        cursor.execute("SELECT supplier_name, invoice_number, date FROM invoices WHERE deleted = 0")
+        for inv in cursor.fetchall():
+            c.setFont("Helvetica", 10)
+            c.drawString(60, y, f"{inv[0]} | Invoice: {inv[1]} | Date: {inv[2]}")
+            y -= 15
+            if y < 50:
+                c.showPage()
+                y = height - 50
+
+        c.save()
+        messagebox.showinfo("Export Complete", f"Full report saved to:\n{filename}")
 
     # === INVENTORY TAB ===
     def create_inventory_tab(self):
+        frame = ttk.Frame(self.inventory_tab)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Form
+        top_frame = ttk.Frame(frame)
+        top_frame.pack(pady=(0, 10))
+        
+        ttk.Label(top_frame, text="Item Name").grid(row=0, column=0, padx=5)
+        ttk.Label(top_frame, text="Quantity").grid(row=0, column=1, padx=5)
+        ttk.Label(top_frame, text="Price").grid(row=0, column=2, padx=5)
+
+        self.item_name = tk.StringVar()
+        self.quantity = tk.IntVar()
+        self.price = tk.DoubleVar()
+
+        ttk.Entry(top_frame, textvariable=self.item_name).grid(row=1, column=0, padx=5)
+        ttk.Entry(top_frame, textvariable=self.quantity).grid(row=1, column=1, padx=5)
+        ttk.Entry(top_frame, textvariable=self.price).grid(row=1, column=2, padx=5)
+
+        ttk.Button(top_frame, text="Add Item", command=self.add_item).grid(row=1, column=3, padx=5)
+        ttk.Button(top_frame, text="Update", command=self.update_item).grid(row=1, column=4, padx=5)
+        ttk.Button(top_frame, text="Delete", command=self.delete_item).grid(row=1, column=5, padx=5)
+
+        # Search
+        search_frame = ttk.Frame(frame)
+        search_frame.pack(pady=(0, 10))
+        self.search_term = tk.StringVar()
+        ttk.Entry(search_frame, textvariable=self.search_term, width=30).pack(side="left", padx=5)
+        ttk.Button(search_frame, text="Search", command=self.search_items).pack(side="left", padx=5)
+        ttk.Button(search_frame, text="Clear", command=self.load_inventory).pack(side="left", padx=5)
+
+        # Treeview
+        self.tree = ttk.Treeview(frame, columns=("Item", "Quantity", "Price"), show="headings")
+        for col in ("Item", "Quantity", "Price"):
+            self.tree.heading(col, text=col)
+        self.tree.bind("<<TreeviewSelect>>", self.load_selected_item)
+        self.tree.pack(fill="both", expand=True)
+
+        # Buttons
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="Export to PDF", command=self.export_inventory_pdf).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Export to CSV", command=self.export_inventory_csv).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Print", command=self.print_inventory_preview).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Refresh", command=self.load_inventory).pack(side="left", padx=5)
+
+        self.load_inventory()
+
         """Set up the inventory management tab."""
         main_frame = ttk.Frame(self.inventory_tab)
         main_frame.pack(fill="both", expand=True)
@@ -215,66 +307,169 @@ class InventoryApp(tk.Tk):
         # Load inventory data
         self.load_inventory()
 
-    def export_inventory_pdf(self):
-        """Export inventory data to a PDF file."""
-        default_filename = f"inventory_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        filename = filedialog.asksaveasfilename(defaultextension=".pdf", initialfile=default_filename,
+    def export_all_to_pdf(self):
+        filename = filedialog.asksaveasfilename(defaultextension=".pdf", initialfile="full_report.pdf",
                                                 filetypes=[("PDF files", "*.pdf")])
         if not filename:
-            return  # user canceled
+            return
+
         c = canvas.Canvas(filename, pagesize=letter)
         width, height = letter
+        y = height - 50
 
         c.setFont("Helvetica-Bold", 16)
-        c.drawString(200, height - 50, "Inventory Report")
+        c.drawString(180, y, "Full Inventory and Invoice Report")
+        y -= 40
 
-        c.setFont("Helvetica", 10)
-        c.drawString(50, height - 70, f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-        # Table headers
+        # Inventory Section
         c.setFont("Helvetica-Bold", 12)
-        c.drawString(50, height - 100, "Item Name")
-        c.drawString(250, height - 100, "Quantity")
-        c.drawString(350, height - 100, "Price")
-
-        # Inventory data
+        c.drawString(50, y, "Inventory Items")
+        y -= 20
         cursor.execute("SELECT item_name, quantity, price FROM inventory WHERE deleted = 0")
-        items = cursor.fetchall()
-
-        if len(items) > 40:
-            font_size = 9
-            row_height = 16
-        else:
-            font_size = 10
-            row_height = 20
-
-        y = height - 120
-        c.setFont("Helvetica", font_size)
-
-        total_value = 0
-        for item in items:
-            name, qty, price = item
-            total_value += qty * price
-            c.drawString(50, y, str(name))
-            c.drawString(250, y, str(qty))
-            c.drawString(350, y, f"${price:.2f}")
-            y -= row_height
+        for item in cursor.fetchall():
+            c.setFont("Helvetica", 10)
+            c.drawString(60, y, f"{item[0]} | Qty: {item[1]} | Price: ${item[2]:.2f}")
+            y -= 15
             if y < 50:
                 c.showPage()
                 y = height - 50
-                c.setFont("Helvetica", font_size)
 
-        # After the loop
-        if y < 80:
-            c.showPage()
-            y = height - 50
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(50, y, f"Total Inventory Value: ${total_value:.2f}")
+        # Invoices Section
+        y -= 20
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "Invoices")
+        y -= 20
+        cursor.execute("SELECT supplier_name, invoice_number, date FROM invoices WHERE deleted = 0")
+        for inv in cursor.fetchall():
+            c.setFont("Helvetica", 10)
+            c.drawString(60, y, f"{inv[0]} | Invoice: {inv[1]} | Date: {inv[2]}")
+            y -= 15
+            if y < 50:
+                c.showPage()
+                y = height - 50
+
+        c.save()
+        messagebox.showinfo("Export Complete", f"Full report saved to:\n{filename}")
+
+    def add_item(self):
+        name = self.item_name.get().strip()
+        qty = self.quantity.get()
+        price = self.price.get()
+
+        if not name:
+            messagebox.showwarning("Input Error", "Item name is required.")
+            return
+
+        cursor.execute("INSERT INTO inventory (item_name, quantity, price) VALUES (?, ?, ?)", (name, qty, price))
+        conn.commit()
+        log_action(self.username, f"Added item: {name}")
+        self.load_inventory()
+
+    def update_item(self):
+        selected = self.tree.focus()
+        if not selected:
+            messagebox.showwarning("Selection Error", "Please select an item to update.")
+            return
+
+        values = self.tree.item(selected, "values")
+        name = self.item_name.get().strip()
+        qty = self.quantity.get()
+        price = self.price.get()
+
+        cursor.execute("UPDATE inventory SET quantity = ?, price = ? WHERE item_name = ?", (qty, price, values[0]))
+        conn.commit()
+        log_action(self.username, f"Updated item: {name}")
+        self.load_inventory()
+
+    def delete_item(self):
+        selected = self.tree.focus()
+        if not selected:
+            messagebox.showwarning("Selection Error", "Please select an item to delete.")
+            return
+
+        values = self.tree.item(selected, "values")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("UPDATE inventory SET deleted = 1, deleted_at = ? WHERE item_name = ?", (timestamp, values[0]))
+        conn.commit()
+        log_action(self.username, f"Soft deleted item: {values[0]}")
+        self.load_inventory()
+
+    def load_selected_item(self, event):
+        selected = self.tree.focus()
+        if selected:
+            values = self.tree.item(selected, "values")
+            self.item_name.set(values[0])
+            self.quantity.set(values[1])
+            self.price.set(values[2])
+
+    def load_inventory(self):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        cursor.execute("SELECT item_name, quantity, price FROM inventory WHERE deleted = 0")
+        for item in cursor.fetchall():
+            self.tree.insert("", tk.END, values=item)
+
+    def search_items(self):
+        term = self.search_term.get().lower()
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        cursor.execute("SELECT item_name, quantity, price FROM inventory WHERE deleted = 0 AND lower(item_name) LIKE ?", (f"%{term}%",))
+        for item in cursor.fetchall():
+            self.tree.insert("", tk.END, values=item)
+        selected = self.user_tree.focus()
+        if not selected:
+            return
+        username = self.user_tree.item(selected, "values")[0]
+        if username == "admin":
+            messagebox.showwarning("Protected User", "The default admin user cannot be deleted.")
+            return
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete user '{username}'?"):
+            cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+            conn.commit()
+            log_action(self.username, f"Deleted user: {username}")
+            self.load_users()
+
+    def export_inventory_pdf(self):
+        filename = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
+        if not filename:
+            return
+
+        c = canvas.Canvas(filename, pagesize=letter)
+        width, height = letter
+        y = height - 50
+
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(200, y, "Inventory Report")
+        y -= 30
+
+        c.setFont("Helvetica", 10)
+        c.drawString(50, y, f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        y -= 30
+
+        # Headers
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "Item Name")
+        c.drawString(250, y, "Quantity")
+        c.drawString(350, y, "Price")
+        y -= 20
+
+        # Data
+        cursor.execute("SELECT item_name, quantity, price FROM inventory WHERE deleted = 0")
+        for name, qty, price in cursor.fetchall():
+            c.setFont("Helvetica", 10)
+            c.drawString(50, y, str(name))
+            c.drawString(250, y, str(qty))
+            c.drawString(350, y, f"${price:.2f}")
+            y -= 15
+
+            if y < 50:
+                c.showPage()
+                y = height - 50
+
         c.save()
         messagebox.showinfo("Export Complete", f"Inventory exported to {filename}")
 
     def export_inventory_csv(self):
-        """Export inventory data to a CSV file."""
         file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
         if not file_path:
             return
@@ -288,17 +483,7 @@ class InventoryApp(tk.Tk):
 
         messagebox.showinfo("Export Complete", f"Inventory exported to:\n{file_path}")
 
-    def load_inventory(self):
-        """Load inventory data into the treeview."""
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-        cursor.execute("SELECT item_name, quantity, price FROM inventory WHERE deleted = 0")
-        for item in cursor.fetchall():
-            self.tree.insert("", tk.END, values=item)
-            self.autosize_columns(self.tree)
-
     def print_inventory_preview(self):
-        """Show a print preview of the inventory and send to printer if confirmed."""
         cursor.execute("SELECT item_name, quantity, price FROM inventory WHERE deleted = 0")
         items = cursor.fetchall()
 
@@ -320,16 +505,230 @@ class InventoryApp(tk.Tk):
         should_print = messagebox.askyesno("Print Preview", "Preview saved. Open print dialog?")
         if should_print:
             try:
-                os.startfile(temp_file.name, "print")  # Windows print dialog
+                os.startfile(temp_file.name, "print")
             except Exception as e:
                 messagebox.showerror("Print Error", f"Could not send to printer.\n{e}")
 
-    # ... (Other methods for invoices, users, logs, recycle bin, settings, etc. are similarly commented above)
+    def create_invoice_tab(self):
+        frame = ttk.Frame(self.invoice_tab)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Input Form
+        top_frame = ttk.Frame(frame)
+        top_frame.pack(pady=(0, 10), fill="x")
+
+        ttk.Label(top_frame, text="Supplier Name").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(top_frame, text="Invoice Number").grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        ttk.Label(top_frame, text="Date").grid(row=0, column=2, padx=5, pady=5, sticky="w")
+
+        self.supplier_name = tk.StringVar()
+        self.invoice_number = tk.StringVar()
+        self.invoice_date = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
+
+        ttk.Entry(top_frame, textvariable=self.supplier_name).grid(row=1, column=0, padx=5)
+        ttk.Entry(top_frame, textvariable=self.invoice_number).grid(row=1, column=1, padx=5)
+        ttk.Entry(top_frame, textvariable=self.invoice_date).grid(row=1, column=2, padx=5)
+        ttk.Button(top_frame, text="Add Invoice", command=self.add_invoice).grid(row=1, column=3, padx=5)
+
+        # Table
+        self.invoice_tree = ttk.Treeview(frame, columns=("Supplier", "Invoice Number", "Date"), show="headings")
+        for col in ("Supplier", "Invoice Number", "Date"):
+            self.invoice_tree.heading(col, text=col)
+        self.invoice_tree.pack(fill="both", expand=True)
+
+        self.load_invoices()
+
+    def add_invoice(self):
+        name = self.supplier_name.get().strip()
+        number = self.invoice_number.get().strip()
+        date = self.invoice_date.get().strip()
+
+        if not (name and number and date):
+            messagebox.showwarning("Input Error", "All invoice fields are required.")
+            return
+
+        cursor.execute(
+            "INSERT INTO invoices (supplier_name, invoice_number, date) VALUES (?, ?, ?)",
+            (name, number, date)
+        )
+        conn.commit()
+        log_action(self.username, f"Added invoice: {number}")
+        self.load_invoices()
+
+    def load_invoices(self):
+        for row in self.invoice_tree.get_children():
+            self.invoice_tree.delete(row)
+        cursor.execute("SELECT supplier_name, invoice_number, date FROM invoices WHERE deleted = 0")
+        for row in cursor.fetchall():
+            self.invoice_tree.insert("", tk.END, values=row)
+
+    def create_user_tab(self):
+        frame = ttk.Frame(self.user_tab)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        form_frame = ttk.Frame(frame)
+        form_frame.pack(pady=(0, 10), fill="x")
+
+        ttk.Label(form_frame, text="Username").grid(row=0, column=0, padx=5)
+        ttk.Label(form_frame, text="Password").grid(row=0, column=1, padx=5)
+        ttk.Label(form_frame, text="Role").grid(row=0, column=2, padx=5)
+
+        self.new_username = tk.StringVar()
+        self.new_password = tk.StringVar()
+        self.new_role = tk.StringVar()
+
+        ttk.Entry(form_frame, textvariable=self.new_username).grid(row=1, column=0, padx=5)
+        ttk.Entry(form_frame, textvariable=self.new_password).grid(row=1, column=1, padx=5)
+        ttk.Combobox(form_frame, textvariable=self.new_role, values=["admin", "viewer"], state="readonly").grid(row=1, column=2, padx=5)
+
+        ttk.Button(form_frame, text="Add User", command=self.add_user).grid(row=1, column=3, padx=5)
+        ttk.Button(form_frame, text="Delete User", command=self.delete_user).grid(row=2, column=3, padx=5)
+
+        self.user_tree = ttk.Treeview(frame, columns=("Username", "Role"), show="headings")
+        self.user_tree.heading("Username", text="Username")
+        self.user_tree.heading("Role", text="Role")
+        self.user_tree.pack(fill="both", expand=True)
+
+        self.load_users()
+
+    def add_user(self):
+        username = self.new_username.get().strip()
+        password = self.new_password.get().strip()
+        role = self.new_role.get().strip()
+
+        if not (username and password and role):
+            messagebox.showwarning("Input Error", "All user fields are required.")
+            return
+
+        try:
+            cursor.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", (username, password, role))
+            conn.commit()
+            log_action(self.username, f"Added user: {username}")
+            self.load_users()
+            self.new_username.set("")
+            self.new_password.set("")
+            self.new_role.set("")
+        except sqlite3.IntegrityError:
+            messagebox.showerror("Error", "Username already exists.")
+
+    def delete_user(self):
+        selected = self.user_tree.focus()
+        if not selected:
+            return
+
+        username = self.user_tree.item(selected, "values")[0]
+        if username == "admin":
+            messagebox.showwarning("Protected User", "The default admin user cannot be deleted.")
+            return
+
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete user '{username}'?"):
+            cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+            conn.commit()
+            log_action(self.username, f"Deleted user: {username}")
+            self.load_users()
+
+    def load_users(self):
+        for row in self.user_tree.get_children():
+            self.user_tree.delete(row)
+        cursor.execute("SELECT username, role FROM users")
+        for row in cursor.fetchall():
+            self.user_tree.insert("", tk.END, values=row)
+
+    def create_log_tab(self):
+        frame = ttk.Frame(self.log_tab)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.log_tree = ttk.Treeview(frame, columns=("Username", "Action", "Timestamp"), show="headings")
+        self.log_tree.heading("Username", text="Username")
+        self.log_tree.heading("Action", text="Action")
+        self.log_tree.heading("Timestamp", text="Timestamp")
+
+        self.log_tree.pack(fill="both", expand=True)
+
+        self.load_logs()
+
+    def load_logs(self):
+        for row in self.log_tree.get_children():
+            self.log_tree.delete(row)
+        cursor.execute("SELECT username, action, timestamp FROM logs ORDER BY timestamp DESC")
+        for row in cursor.fetchall():
+            self.log_tree.insert("", tk.END, values=row)
+
+    def create_settings_tab(self):
+        frame = ttk.Frame(self.settings_tab)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        ttk.Label(frame, text="Application Settings", font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(frame, text="Select Theme:").pack(anchor="w")
+
+        self.theme_choice = tk.StringVar(value="clam")
+        theme_menu = ttk.Combobox(frame, textvariable=self.theme_choice, values=["clam", "default", "alt"], state="readonly")
+        theme_menu.pack(pady=5)
+
+        ttk.Button(frame, text="Apply Theme", command=self.apply_theme).pack(pady=(10, 0), anchor="e")
+
+    def apply_theme(self):
+        try:
+            style = ttk.Style(self)
+            style.theme_use(self.theme_choice.get())
+            messagebox.showinfo("Theme Applied", f"Theme '{self.theme_choice.get()}' applied successfully.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not apply theme: {e}")
+
+    def create_recycle_tab(self):
+        frame = ttk.Frame(self.recycle_tab)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        ttk.Label(frame, text="Deleted Inventory Items", font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 10))
+
+        self.recycle_tree = ttk.Treeview(frame, columns=("Item", "Quantity", "Price", "Deleted At"), show="headings")
+        for col in ("Item", "Quantity", "Price", "Deleted At"):
+            self.recycle_tree.heading(col, text=col)
+        self.recycle_tree.pack(fill="both", expand=True, pady=(0, 10))
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill="x")
+
+        ttk.Button(btn_frame, text="Restore Selected", command=self.restore_deleted_item).pack(side="left")
+        ttk.Button(btn_frame, text="Permanently Delete", command=self.permanently_delete_item).pack(side="right")
+
+        self.load_recycle_bin()
+
+    def load_recycle_bin(self):
+        for row in self.recycle_tree.get_children():
+            self.recycle_tree.delete(row)
+        cursor.execute("SELECT item_name, quantity, price, deleted_at FROM inventory WHERE deleted = 1")
+        for row in cursor.fetchall():
+            self.recycle_tree.insert("", tk.END, values=row)
+
+    def restore_deleted_item(self):
+        selected = self.recycle_tree.focus()
+        if not selected:
+            return
+
+        item_name = self.recycle_tree.item(selected, "values")[0]
+        cursor.execute("UPDATE inventory SET deleted = 0, deleted_at = NULL WHERE item_name = ?", (item_name,))
+        conn.commit()
+        log_action(self.username, f"Restored item: {item_name}")
+        self.load_recycle_bin()
+        self.load_inventory()
+
+    def permanently_delete_item(self):
+        selected = self.recycle_tree.focus()
+        if not selected:
+            return
+
+        item_name = self.recycle_tree.item(selected, "values")[0]
+        if messagebox.askyesno("Confirm Delete", f"Permanently delete '{item_name}'?"):
+            cursor.execute("DELETE FROM inventory WHERE item_name = ?", (item_name,))
+            conn.commit()
+            log_action(self.username, f"Permanently deleted item: {item_name}")
+            self.load_recycle_bin()
 
 # === LOGIN WINDOW ===
 
 def login_window():
-    """Display the login window and authenticate users."""
     login = tk.Tk()
     login.title("Login")
     login.geometry("300x200")
@@ -381,4 +780,3 @@ def draw_gradient(canvas, width, height, start_color, end_color):
 
 if __name__ == "__main__":
     login_window()
-
